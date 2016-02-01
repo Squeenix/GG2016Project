@@ -1,11 +1,8 @@
 <!doctype html>
-<!--Credits:
- 	Myself:  Making the game
- 	Kenney.nl:  Excellent free 2d tilesets
- 	虚ろのは箱と零の真里亞 (Utsuronohakotozeronomaria book):  Gave me the initial idea (that needed to be modified a lot)-->
 <html>
 <head>
 	<title>Test</title>
+	<script src="scripts/jquery-2.2.0.min.js"></script>
 	<script src="scripts/socket.io-1.4.5.js"></script>
 	<script src="scripts/phaser.min.js"></script>
 	<script src="scripts/packetTypes.js"></script>
@@ -15,9 +12,33 @@
 
 	<!--Connect and run the game-->
 	<script src="scripts/gamecreator.js"></script>
-
+	<style>
+		form { background: #FFF; padding: 3px; width: 640px;}
+	    form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; border: 1px solid;}
+	    form button { width: 9%; background: #FFF; border: none; padding: 10px; border: 1px solid;}
+	    #messages { list-style-type: none; margin: 0; padding: 0; }
+	    #messages li { padding: 5px 10px; }
+	    #messages li:nth-child(odd) { background: #eee; }
+    </style>
 </head>
 <body>
-	
+<div id ="Game"></div>
+<div id="messageList" style="height: 100px; width: 640px; padding: 0; margin:0; overflow: scroll; background-color: #e3e3e3;"></div>
+
+<form id="f" action="">
+	<input id="m" autocomplete="off" /><button>Send</button>
+</form>
+<script>
+
+//Set up the chat box
+$('#f').submit(function(){
+	var text = new String($('#m').val());
+	var chatPacket = new PacketTypes.ToServerChatPacket(text);
+	sendPacket(chatPacket);
+	$('#m').val('');
+	console.log(text);
+ 	return false;
+ });
+</script>
 </body>
 </html>

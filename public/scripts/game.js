@@ -1,10 +1,10 @@
 var Factions = {
-	TERRORIST: {id: 100001, name: "Terrorist"};
-	POLICEMAN: {id: 100002, name: "Policeman"};
-	CIVILIAN: {id: 100003, name: "Civilian"};
-	JUDGE: {id: 100004, name: "Judge"};
-	MAFIA: {id: 100005, name: "Mafia"};
-}
+	TERRORIST: {id: 100001, name: "Terrorist"},
+	POLICEMAN: {id: 100002, name: "Policeman"},
+	CIVILIAN: {id: 100003, name: "Civilian"},
+	JUDGE: {id: 100004, name: "Judge"},
+	MAFIA: {id: 100005, name: "Mafia"},
+};
 
 var theGame = function(game){
 	console.log("Waiting on server to start");
@@ -17,11 +17,15 @@ theGame.prototype.init = function(spawnpacket){
 }
 
 theGame.prototype.preload = function(){
+	
+	this.nextFire = 0;
+	this.fireRate = 10000;
+
 	this.wasd = {
 		up: game.input.keyboard.addKey(Phaser.Keyboard.W),
 		down: game.input.keyboard.addKey(Phaser.Keyboard.S),
-		left: game.input.keyboard.addKey(Phaser.Keyboard.A),
-		right: game.input.keyboard.addKey(Phaser.Keyboard.D)
+		right: game.input.keyboard.addKey(Phaser.Keyboard.A),
+		left: game.input.keyboard.addKey(Phaser.Keyboard.D)
 	};
 
 	this.otherInputs = {
@@ -42,28 +46,70 @@ theGame.prototype.create = function() {
 	//Set up all players
 	this.otherPlayerList = [];
 
-	for(var i = 0; i < initPlayerList.length; i++){
-		if(initPlayerList[i].id === this.yourID){
-			var mainCharacterData = this.playerSpriteList[i];
+	this.otherPlayerGroup = game.add.physicsGroup();
+
+	for(var i = 0; i < this.initPlayerList.length; i++){
+		if(this.initPlayerList[i].playerID === this.yourID){
+			var mainCharacterData = this.initPlayerList[i];
 			//Sprite Setup
-			this.thePlayer = game.add.sprite(400, 400, getPlayerSkinResource(mainCharacterData.model));
-			this.thePlayer.bodyWidth = 20;
-			this.thePlayer.bodyHeight = 30;
+			this.thePlayer = game.add.sprite(mainCharacterData.x,
+							 				 mainCharacterData.y,
+							 				 this.getPlayerSkinResource(mainCharacterData.model, false));
+			this.model = mainCharacterData.model;
+			this.faction = mainCharacterData.faction;
+			this.isDead = false;
 			this.thePlayer.anchor.setTo(0.5);
 		}
 		else{
-			var playerData = this.playerSpriteList[i];
-			var playerSprite = game.add.sprite(playerData.x, playerData.y);
+			var playerData = this.initPlayerList[i];
+			var playerSprite = this.otherPlayerGroup.create(playerData.x, playerData.y, this.getPlayerSkinResource(playerData.model, false));
 			playerSprite.bodyWidth = 20;
 			playerSprite.bodyHeight = 30;
-			this.thePlayer.anchor.setTo(0.5);
+			playerSprite.anchor.setTo(0.5);
+			playerSprite.body.immovable = true;
 			this.otherPlayerList.push({data:playerData, sprite:playerSprite, modelUpdated:false});
 		}
 	}
-)
+	this.hasGun = false;
+	//BULLETS
+
+	//Enemy Bullets
+	this.enemyBullets = game.add.group();
+    this.enemyBullets.enableBody = true;
+    this.enemyBullets.physicsBodyType = Phaser.Physics.ARCADE;
+    this.enemyBullets.createMultiple(100, 'bullet');
+    
+    this.enemyBullets.setAll('anchor.x', 0.5);
+    this.enemyBullets.setAll('anchor.y', 0.5);
+    this.enemyBullets.setAll('outOfBoundsKill', true);
+    this.enemyBullets.setAll('checkWorldBounds', true);
+
+    //Enemy Bullets
+	this.dummyBullets = game.add.group();
+    this.dummyBullets.enableBody = true;
+    this.dummyBullets.physicsBodyType = Phaser.Physics.ARCADE;
+    this.dummyBullets.createMultiple(100, 'bullet');
+    
+    this.dummyBullets.setAll('anchor.x', 0.5);
+    this.dummyBullets.setAll('anchor.y', 0.5);
+    this.dummyBullets.setAll('outOfBoundsKill', true);
+    this.dummyBullets.setAll('checkWorldBounds', true);
+
+    this.bullets = game.add.group();
+    this.bullets.enableBody = true;
+    this.bullets.physicsBodyType = Phaser.Physics.ARCADE;
+    this.bullets.createMultiple(20, 'bullet', 0, false);
+    this.bullets.setAll('anchor.x', 0.5);
+    this.bullets.setAll('anchor.y', 0.5);
+    this.bullets.setAll('outOfBoundsKill', true);
+    this.bullets.setAll('checkWorldBounds', true);
+
 
 	this.collidableLayer = this.map.createLayer('Collidables');
 	this.collidableLayer.resizeWorld();
+
+	this.otherPlayerGroup.enableBody = true;
+    this.otherPlayerGroup.physicsBodyType = Phaser.Physics.ARCADE;
 
 	//Collision Groups (replace with p2 physics sometime)
 
@@ -75,7 +121,7 @@ theGame.prototype.create = function() {
 	game.input.keyboard.addKey(Phaser.Keyboard.X).onDown.add(theGame.prototype.takeOutGun, this);
 
 
-	//this.thePlayer.collideWorldBounds = true;
+	this.thePlayer.collideWorldBounds = true;
 	game.physics.arcade.enable(this.thePlayer);
 	game.camera.follow(this.thePlayer);
 
@@ -83,139 +129,232 @@ theGame.prototype.create = function() {
 	//replace with collideboxes when you replace arcade with p2 physics
 	this.map.setCollisionBetween(1, 539, true, this.collidableLayer, true);
 
-
-	//"Game-Specific Settings"
-	this.playerHasGunOut = false;
+	//Closure magic
+	var context = this;
+	changeEventRecipient(function(packet){ context.handlePacket(packet); });
 };
 
 theGame.prototype.update = function() {
+
+	//Do collision between player and enemy bullets
+	game.physics.arcade.overlap(this.enemyBullets, this.thePlayer, this.playerHitByBullet, null, this);
+	//game.physics.arcade.overlap(this.bullets, this.otherPlayerGroup, this.playerHitByDummyBullet, null, this);
+
+	game.physics.arcade.overlap(this.thePlayer, this.otherPlayerGroup);
+	if (game.input.activePointer.isDown)
+    {
+        this.shootBullet();
+    }
+
+	if(this.thePlayer.isDead){
+
+	}
+	if (game.input.activePointer.withinGame)
+    {
+        game.input.enabled = true;
+        game.stage.backgroundColor = '#736357';
+    }
+    else
+    {
+        game.input.enabled = false;
+        game.stage.backgroundColor = '#731111';
+    }
+
 	game.physics.arcade.collide(this.thePlayer, this.collidableLayer);
+	game.physics.arcade.collide(this.thePlayer, this.otherPlayerGroup);
+
 
 	var mouseX = game.input.mousePointer.x;
 	var mouseY = game.input.mousePointer.y;
 	var centerX = game.width / 2;
-	var centerY = game.width / 2;
+	var centerY = game.height / 2;
 
 	/* Move towards the mouse pointer.  Also the characer is centered at the player 
 	which is why we can use global window coordinates */
 
+	if(!this.isDead){
+		var vectorX = mouseX - centerX;
+		var vectorY = mouseY - centerY;
+		var playerAngle = Math.atan2(vectorY, vectorX);
 
-	var vectorX = mouseX - centerX;
-	var vectorY = mouseY - centerY;
-	var playerAngle = Math.atan2(vectorY, vectorX);
+		var inputVelocityX = 0;
+		var inputVelocityY = 0;
+		if (this.wasd.up.isDown){
+	        inputVelocityX += vectorX;
+	        inputVelocityY += vectorY;
+	    }
+	    
+	    if(this.wasd.down.isDown){
+	    	inputVelocityX -= vectorX;
+	        inputVelocityY -= vectorY;
+	    }
+	    
+	    if(this.wasd.right.isDown){
+	    	inputVelocityX += vectorY;
+	        inputVelocityY -= vectorX;
+	    }
+	    
+	    if(this.wasd.left.isDown){
+	    	inputVelocityX -= vectorY;
+	        inputVelocityY += vectorX;
+	    }
+		
+		var normalizedInputVelocityX = 0;
+		var normalizedInputVelocityY = 0;    
 
-	var inputVelocityX = 0;
-	var inputVelocityY = 0;
+	    //Avoid division by zero
+	    if(inputVelocityX != 0 || inputVelocityY !=0){
+		    var magnitude = Math.sqrt(inputVelocityX * inputVelocityX + inputVelocityY * inputVelocityY);
 
-	if (this.wasd.up.isDown){
-        inputVelocityX += vectorX;
-        inputVelocityY += vectorY;
-    }
-    
-    if(this.wasd.down.isDown){
-    	inputVelocityX -= vectorX;
-        inputVelocityY -= vectorY;
-    }
-    
-    if(this.wasd.right.isDown){
-    	inputVelocityX += vectorY;
-        inputVelocityY -= vectorX;
-    }
-    
-    if(this.wasd.left.isDown){
-    	inputVelocityX -= vectorY;
-        inputVelocityY += vectorX;
-    }
-	
-	var normalizedInputVelocityX = 0;
-	var normalizedInputVelocityY = 0;    
+		    normalizedInputVelocityX = inputVelocityX / magnitude;
+		    normalizedInputVelocityY = inputVelocityY / magnitude;
+		}
 
-    //Avoid division by zero
-    if(inputVelocityX != 0 || inputVelocityY !=0){
-	    var magnitude = Math.sqrt(inputVelocityX * inputVelocityX + inputVelocityY * inputVelocityY);
 
-	    normalizedInputVelocityX = inputVelocityX / magnitude;
-	    normalizedInputVelocityY = inputVelocityY / magnitude;
+	    this.thePlayer.body.velocity.x = normalizedInputVelocityX * moveVelocity;
+	    this.thePlayer.body.velocity.y = normalizedInputVelocityY * moveVelocity;	
+	   
+	    this.thePlayer.angle = playerAngle * 57.2958;
 	}
 
-
-    this.thePlayer.body.velocity.x = normalizedInputVelocityX * moveVelocity;
-    this.thePlayer.body.velocity.y = normalizedInputVelocityY * moveVelocity;	
-   
-    this.thePlayer.angle = playerAngle * 57.2958;
-
+    this.sendUpdatePacketToServer();
 };
 
 theGame.prototype.takeOutGun = function(){
-	this.thePlayer.loadTexture('p1gun');
-	console.log("swapped gun");
-	if(this.playerHasGunOut){
-		this.playerHasGunOut = false;
+	var classAllowsGun = this.faction === Factions.TERRORIST.id || this.faction === Factions.JUDGE.id ;
+	if(!classAllowsGun){
+		return;
+	}
+	if(this.hasGun){
+		this.thePlayer.loadTexture(this.getPlayerSkinResource(this.model, false));
+		this.hasGun = false;
 	}
 	else{
-		this.playerHasGunOut = true;
+		this.thePlayer.loadTexture(this.getPlayerSkinResource(this.model, true));
+		this.hasGun = true;
 	}
 
 };
 
-theGame.prototype.shoot = function(){
-	var bullet = bullets.getFirstDead();
+/* Creates a bullet.  Also sends a spawning packet to the server */
+theGame.prototype.shootBullet = function(){
+	if(!this.hasGun) return;
+	if (game.time.now > this.nextFire && this.bullets.countDead() > 0){
+        this.nextFire = game.time.now + this.fireRate;
 
-    bullet.reset(sprite.x - 8, sprite.y - 8);
+        var bullet = this.bullets.getFirstExists(false);
 
-    game.physics.arcade.moveToPointer(bullet, 300);
+        bullet.reset(this.thePlayer.x, this.thePlayer.y);
+
+        var speed = 700;
+        
+		var mouseX = game.input.mousePointer.x;
+		var mouseY = game.input.mousePointer.y;
+		var centerX = game.width / 2;
+		var centerY = game.height / 2;
+
+		var vectorX = mouseX - centerX;
+		var vectorY = mouseY - centerY;
+		var magnitude = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+
+		bullet.body.velocity.x = vectorX / magnitude * speed; 
+		bullet.body.velocity.y = vectorY / magnitude * speed;
+
+		var bulletPacket = new PacketTypes.BulletSpawnPacket(this.thePlayer.x, this.thePlayer.y, bullet.body.velocity.x, bullet.body.velocity.y);
+		sendPacket(bulletPacket);
+    }
 };
 
-theGame.prototype.createBullet = function(){
-
-};
-
-theGame.prototype.sendState = function(){
-	var statePacket = new PacketTypes.ClientToServerUpdatePacket(this.thePlayer.body.x,
-																 this.thePlayer.body.y,
-																 this.thePlayer.angle,
-																 this.playerHasGunOut);
-	PacketHandler.sendPacket(statePacket);
-}
 
 theGame.prototype.updatePlayerData = function(updatePacket){
-	for(var i = 0; i < otherPlayerList.length; i++){
-		if(updatePacket.playerID === otherPlayerList[i].data.playerID){
-			otherPlayerList.data.playerID[i].data.model = updatePacket.model;
-			otherPlayerList.data.playerID[i].data.model = updatePacket.model;
+	for(var i = 0; i < this.otherPlayerList.length; i++){
+		if(updatePacket.playerID === this.otherPlayerList[i].data.playerID){
+			//this is bad code but oh well
+			this.otherPlayerList[i].data = updatePacket;
+			
+			var dead = updatePacket.isDead;
+			
+			//Updating model is computationally expensive, only do it when 
+			//because it would be sad to see a top down shooter lag in 2016
+			this.otherPlayerList[i].sprite.loadTexture(this.getPlayerSkinResource(updatePacket.model, updatePacket.hasGun));
 
-			//Updating model is computationally expensive, only do it when needed
-			if(updatePacket.model != otherPlayerList.data.model){
-				otherPlayerList[i].modelUpdated = true;
+
+			//Now update the sprite
+			var bodyData = this.otherPlayerList[i].data;
+			var sprite = this.otherPlayerList[i].sprite;
+			sprite.x = bodyData.x;
+			sprite.y = bodyData.y;
+			sprite.rotation = bodyData.rotation;
+
+			if(dead){
+				sprite.opacity = 0.3;
 			}
+
+			this.otherPlayerList[i].data = updatePacket;
+			
 			return;
 		}
 	}
-}
+};
+
 
 theGame.prototype.handlePacket = function(packet){
-	if(packet.id === PacketTypes.ENDGAMEPACKETID || PacketTypes.CHATMESSAGEPACKETID){
-		console.log("theGame.prototype recieved a packet if should not have");
+	if(packet.id === PacketTypes.ENDGAMEPACKETID || packet.id === PacketTypes.CHATMESSAGEPACKETID){
+		console.log("theGame.prototype recieved a packet if should not have recieved.");
 	}
 	else if(packet.id === PacketTypes.PLAYERUPDATEPACKETID){
-		updatePlayerData(packet);
+		this.updatePlayerData(packet);
 	}
 	else if(packet.id === PacketTypes.BULLETSPAWNPACKETID){
-		//spawn some lead
+		this.spawnEnemyBullet(packet);
 	}
 };
 
-theGame.prototype.sendUpdatePacketToServer = function(){
-	var updatePacket = new PacketTypes.ServerUpdatePacket(x, y, model, rotation, gunOut);
 
-	PacketHandler.sendPacket(updatePacket)
+theGame.prototype.sendUpdatePacketToServer = function(){
+	var updatePacket = new PacketTypes.ServerUpdatePacket(this.thePlayer.x,
+														  this.thePlayer.y, 
+														  this.model,
+														  this.thePlayer.rotation, 
+														  this.hasGun,
+														  this.isDead);
+	sendPacket(updatePacket);
+};
+
+theGame.prototype.spawnEnemyBullet = function(packet){
+	var bullet = this.enemyBullets.getFirstExists(false);
+
+        bullet.reset(packet.x, packet.y);
+        bullet.body.velocity.x = packet.xVel;
+        bullet.body.velocity.y= packet.yVel;
 }
 
+theGame.prototype.spawnEnemyDummyBullet = function(packet){
+	var bullet = this.dummyBullets.getFirstExists(false);
+
+        bullet.reset(packet.x, packet.y);
+        bullet.body.velocity.x = packet.xVel;
+        bullet.body.velocity.y= packet.yVel;
+}
+
+
+theGame.prototype.playerHitByBullet = function(player, bullet){
+	console.log("Got hit");
+	this.isDead = true;
+	bullet.kill();
+}
+
+theGame.prototype.playerHitByDummyBullet = function(player, bullet){
+	bullet.kill();
+	//Nothing happens except the bullet is destroyed
+}
+
+/* Returns the string for fetching the skin based off of the Model ID*/
 theGame.prototype.getPlayerSkinResource = function(modelID, hasGun){
 	if(hasGun){
-		return "p" + modelID + "_gun";
+		return "p" + modelID + "gun";
 	}
 	else{
-		return "p" + modelID + "_hold";
+		return "p" + modelID + "hold";
 	}
-}
+};

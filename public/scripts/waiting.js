@@ -7,7 +7,6 @@ var waiting = function(game){
 var waitingScreenText;
 
 waiting.prototype.preload =  function(){
-	console.log("Waiting Screen: Loaing Assets");
 	game.load.tilemap('map', 'assets/map.json', null, Phaser.Tilemap.TILED_JSON);
 	game.load.image('tiles', 'assets/spritesheet_tiles.png');
 	
@@ -27,24 +26,32 @@ waiting.prototype.preload =  function(){
 	game.load.image('p6hold', 'assets/p6_hold.png');
 
 	game.load.image('bullet', 'assets/bullet.png');
+
+	console.log("Waiting Screen: Assets successfully loaded");
 }
 
 waiting.prototype.create = function(){
+	//Javascript closure magic　ツ
+	//Closure magic
+	var context = this;
+	changeEventRecipient(function(packet){ context.handlePacket(packet); });
 	waitingScreenText = game.add.text(game.world.centerX, game.world.centerY, 'Waiting on other players', { font: "64px Arial", fill: "#000000", align: "center" });
 
+	var wantToPlay = new PacketTypes.WantToPlayPacket();
+	sendPacket(wantToPlay);
+	console.log("Sent Request to Play");
 	//For debugging
-	this.readyToStart();
 }
 
 waiting.prototype.readyToStart = function(spawnPacket){
-	console.log("Preparing to start game");
-	game.state.start("theGame", true, false, );
+	console.log("Preparing to start game.");
+	game.state.start("theGame", true, false, spawnPacket);
 }
 
 waiting.prototype.handlePacket = function(packet){
-	if(packet.id == PacketTypes.SPAWNPACKETID){
-		readyToStart(packet);
+	if(packet.id === PacketTypes.SPAWNPACKETID){
+		this.readyToStart(packet);
 	} else {
-		console.log("Look like the game already started.  Did something go wrong? ")
+		packetQueue.push(packet);
 	}
 };

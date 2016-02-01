@@ -32,35 +32,8 @@
          "width":45,
          "x":0,
          "y":0
-        }, 
-        {
-         "draworder":"topdown",
-         "height":35,
-         "name":"CollideBoxes",
-         "objects":[
-                {
-                 "height":107.036485480268,
-                 "id":22,
-                 "name":"",
-                 "properties":
-                    {
-
-                    },
-                 "rotation":0,
-                 "type":"",
-                 "visible":true,
-                 "width":106.105733432614,
-                 "x":1355.17498138496,
-                 "y":969.843633655994
-                }],
-         "opacity":1,
-         "type":"objectgroup",
-         "visible":true,
-         "width":40,
-         "x":0,
-         "y":0
         }],
- "nextobjectid":23,
+ "nextobjectid":24,
  "orientation":"orthogonal",
  "properties":
     {
